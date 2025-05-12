@@ -617,29 +617,22 @@ def handle_unlinked_files(client: Client, exclude_trackers: list[str] = [], excl
     print('-' * 120)
     for torrent in df.sort_values(by='Unlinked_Size', ascending=True).itertuples():
         print(f"{torrent.Size / (1024 ** 3):>15.2f} {torrent.Unlinked_Size / (1024 ** 3):>20.2f} {torrent.Unlinked_Size / torrent.Size * 100:>15.2f} {torrent.Tracker:<30} {torrent.Torrent_Name:<60}")
-        print(f"    {'Size (GiB)':>10} {'HL':>5} {'SL':>5} {'Filename':<75}")
-        print('    '+'-' * 100)
-        for file in myTorrents.get_by_hash(torrent.Hash).files:
-            file_path = os.path.join(root_dir, file)
-            if os.path.exists(file_path):
-                print(f"    {os.stat(file_path).st_size / (1024 ** 3):>10.2f} {os.path.islink(file_path):>5} {os.stat(file_path).st_nlink:>5} {file_path:<75}")
-            else:
-                print(f"    Could not find file: {file_path}")
-                if not path_prefix:
-                    print("    Perhaps use --path-prefix to set the correct path prefix")
 
     print("")
     print("Grouped by tracker:")
     # print grouped by tracker
     print(f"{'Tracker':<30} {'Count':>10} {'Size (GiB)':>15} {'Unlinked Size (GiB)':>20} {'Unlinked %':>15}")
     print('-' * 120)
-    for tracker, data in df.groupby('Tracker').agg({'Size': 'sum', 'Unlinked_Size': 'sum', 'Torrent_Name': 'count'}).iterrows():
+    for tracker, data in df.groupby('Tracker').agg({'Size': 'sum', 'Unlinked_Size': 'sum', 'Torrent_Name': 'count'}).sort_values(by='Unlinked_Size', ascending=True).iterrows():
         size_gib = data['Size'] / (1024 ** 3)
         unlinked_size_gib = data['Unlinked_Size'] / (1024 ** 3)
         unlinked_percent = unlinked_size_gib / size_gib * 100
         print(f"{tracker:<30} {int(data['Torrent_Name']):>10} {size_gib:>15.2f} {unlinked_size_gib:>20.2f} {unlinked_percent:>15.2f}")
         
     print("")
+    
+    print(f"Total size of unlinked files: {sum(os.stat(file).st_size for file in unlinked_files.values()) / (1024 ** 4):.2f} TiB")
+    
     print(f"Entire command took {time.time() - cmd_start_time:.2f}s")
         
 
