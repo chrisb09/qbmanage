@@ -1,0 +1,5 @@
+qbit:
+  host: localhost  # Update with your QBittorrent host
+  port: 8080       # Update with your QBittorrent port
+  username: admin  # Update with your QBittorrent username
+  password: adminadmin  # Update with your QBittorrent password
