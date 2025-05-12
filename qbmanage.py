@@ -630,9 +630,9 @@ def handle_unlinked_files(client: Client, exclude_trackers: list[str] = [], excl
         print(f"{tracker:<30} {int(data['Torrent_Name']):>10} {size_gib:>15.2f} {unlinked_size_gib:>20.2f} {unlinked_percent:>15.2f}")
         
     print("")
-    
-    print(f"Total size of unlinked files: {sum(os.stat(file).st_size for file in unlinked_files.values()) / (1024 ** 4):.2f} TiB")
-    
+
+    print(f"Total size of unlinked files: {sum(os.stat(file).st_size for files in torrents_to_consider.values() for file in files) / (1024 ** 4):.2f} TiB")
+
     print(f"Entire command took {time.time() - cmd_start_time:.2f}s")
         
 
