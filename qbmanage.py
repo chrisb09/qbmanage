@@ -1,4 +1,4 @@
-import argparse, os, time
+import argparse, os, time, sys
 import re
 import yaml
 from qbittorrentapi import Client, LoginFailed
@@ -360,7 +360,7 @@ class MyTracker:
         return f"MyTracker(url={self.url}, status={self.status}, msg={self.msg})"
             
 class MyTorrent:
-    def __init__(self, name: str, hash: str, size: int, files: List[str], state_enum: str, category: str, tags: List[str], trackerlist: List[MyTracker]):
+    def __init__(self, name: str, hash: str, size: int, files: List[str], state_enum: str, category: str, tags: List[str], trackerlist: List[MyTracker], time_active: int):
         self.name = name
         self.hash = hash
         self.size = size
@@ -369,6 +369,7 @@ class MyTorrent:
         self.category = category
         self.tags = tags
         self.trackerlist = trackerlist
+        self.time_active = time_active
 
     def __init__(self, torrent):
         self.name = torrent.name
@@ -379,9 +380,9 @@ class MyTorrent:
         self.category = torrent.category
         self.tags = torrent.tags
         self.trackerlist = [MyTracker(url=tr.url, status=tr.status, msg=tr.msg) for tr in torrent.trackers]
-
+        self.time_active = torrent.time_active
     def __repr__(self):
-        return f"MyTorrent(name={self.name}, hash={self.hash}, size={self.size}, files={self.files}, state_enum={self.state_enum}, category={self.category}, tags={self.tags}, trackerlist={self.trackerlist})"
+        return f"MyTorrent(name={self.name}, hash={self.hash}, size={self.size}, files={self.files}, state_enum={self.state_enum}, category={self.category}, tags={self.tags}, trackerlist={self.trackerlist}, time_active={self.time_active})"
 
 class MyTorrentList(List[MyTorrent]):
     trackers = set()
@@ -415,7 +416,7 @@ class MyTorrentList(List[MyTorrent]):
     def __repr__(self):
         return f"MyTorrentList(torrents={self.torrents})"
 
-def handle_unlinked_files(client: Client, exclude_trackers: list[str] = [], exclude_messages: list[str] = [], exclude_hashes: list[str] = [], exclude_categories: list[str] = [], exclude_tags: list[str] = [], include_trackers: list[str] = [], include_messages: list[str] = [], include_hashes: list[str] = [], include_categories: list[str] = [], include_tags: list[str] = [], no_progress: bool = False, delete: bool = False, yes_do_as_i_say: bool = False, path_prefix: str = ''):
+def handle_unlinked_files(client: Client, exclude_trackers: list[str] = [], exclude_messages: list[str] = [], exclude_hashes: list[str] = [], exclude_categories: list[str] = [], exclude_tags: list[str] = [], include_trackers: list[str] = [], include_messages: list[str] = [], include_hashes: list[str] = [], include_categories: list[str] = [], include_tags: list[str] = [], min_unlinked_size_abs: float = sys.float_info.min, min_unlinked_size_rel: float = sys.float_info.min, min_torrent_age: float = 14, no_progress: bool = False, delete: bool = False, yes_do_as_i_say: bool = False, path_prefix: str = ''):
     
     cmd_start_time = time.time()
     
@@ -538,6 +539,17 @@ def handle_unlinked_files(client: Client, exclude_trackers: list[str] = [], excl
                 
         time_c += time.time() - time_before
         time_before = time.time()
+        
+        unlinked_size = sum(os.stat(file).st_size for file in unlinked_files_of_this_torrent)
+        
+        if min_unlinked_size_abs is not None and unlinked_size < min_unlinked_size_abs * (1024 ** 3): # convert from GiB to bytes
+            continue
+        if min_unlinked_size_rel is not None and torrent.size > 0 and ((100 * unlinked_size / torrent.size) if torrent.size > 0 else 100) < min_unlinked_size_rel:
+            continue
+        
+        print(type(torrent))
+        if min_torrent_age is not None and min_torrent_age * 24 * 3600 > torrent.time_active:
+            continue
                 
         
         # use matching to exlude and include torrents
@@ -630,7 +642,55 @@ def handle_unlinked_files(client: Client, exclude_trackers: list[str] = [], excl
         
     print("")
 
+    print("Total amount of torrents with unlinked files: "+str(len(torrents_to_consider)))
+    print(f"Total amount of unlinked files: {sum(1 for files in torrents_to_consider.values() for file in files)}")
     print(f"Total size of unlinked files: {sum(os.stat(file).st_size for files in torrents_to_consider.values() for file in files) / (1024 ** 4):.2f} TiB")
+
+    if delete:
+        hashes_to_delete = [torrent.hash for torrent in torrents_to_consider.keys()]
+        files_candidates = set(file for files in torrents_to_consider.values() for file in files)
+
+        confirm = "y" if yes_do_as_i_say else input(f"Delete these {len(hashes_to_delete)} torrents? (y/N): ")
+        if confirm.lower().startswith('y'):
+            for hash in hashes_to_delete:
+                client.torrents_delete(delete_files=False, torrent_hashes=hash)
+            print(f"Deleted {len(hashes_to_delete)} torrents")
+
+            # Rescan remaining torrents to find which files are still referenced
+            print("Rescanning remaining torrents to check which files are still in use...")
+            remaining_files = set()
+            total = len(client.torrents_info())
+            current = 0
+            for torrent in client.torrents_info():
+                current += 1
+                print(f"Scanning torrent {current} of {total}", end='\r')
+                for file in torrent.files:
+                    remaining_files.add(os.path.abspath(os.path.join(root_dir, file.name)))
+
+            files_to_delete = [f for f in files_candidates if f not in remaining_files]
+            files_still_in_use = [f for f in files_candidates if f in remaining_files]
+
+            print(f"Of {len(files_candidates)} unlinked files, {len(files_still_in_use)} are still referenced by other torrents and will be kept.")
+            print(f"Will delete {len(files_to_delete)} files:")
+            for f in files_to_delete:
+                print(f"    {f}")
+
+            confirm = "y" if yes_do_as_i_say else input(f"Delete these {len(files_to_delete)} files? (y/N): ")
+            if confirm.lower().startswith('y'):
+                for f in files_to_delete:
+                    try:
+                        os.remove(f)
+                    except FileNotFoundError:
+                        print(f"File {f} not found, skipping")
+                    except PermissionError:
+                        print(f"Permission denied for {f}, skipping")
+                    except Exception as e:
+                        print(f"Error deleting {f}: {e}")
+                print(f"Deleted {len(files_to_delete)} files")
+            else:
+                print("File deletion canceled")
+        else:
+            print("Deletion canceled")
 
     print(f"Entire command took {time.time() - cmd_start_time:.2f}s")
         
@@ -677,6 +737,9 @@ def main():
     unlinked_parser.add_argument('--include-hashes', nargs='+', help='Include torrents with these hashes, in regex format, e.g. ".*hash1.*" ".*hash2.*"')
     unlinked_parser.add_argument('--include-categories', nargs='+', help='Include torrents with these categories, in regex format, e.g. ".*category1.*" ".*category2.*"')
     unlinked_parser.add_argument('--include-tags', nargs='+', help='Include torrents with these tags, in regex format, e.g. ".*tag1.*" ".*tag2.*"')
+    unlinked_parser.add_argument('--min-unlinked-size-abs', type=float, help='Minimum total size of unlinked files to consider a torrent as unlinked, in GiB', default=1/(1024 ** 3)) # default to 1 byte
+    unlinked_parser.add_argument('--min-unlinked-size-rel', type=float, help='Minimum total size of unlinked files relative to the torrent size to consider a torrent as unlinked, in percentage, e.g. 50 for 50%%', default=sys.float_info.min) # small number larger than 0
+    unlinked_parser.add_argument('--min-torrent-age', type=float, help='Minimum age of torrent to consider for unlinked files, in days', default=14) # default to 14 days
     unlinked_parser.add_argument('--no-progress', '--np', action='store_true', help='Disable progress bar')
     unlinked_parser.add_argument('--delete', action='store_true', help='Delete torrents that are not linked to any files')
     unlinked_parser.add_argument('--yes-do-as-i-say', action='store_true', help='Delete torrents that are not linked to any files without asking for confirmation')
@@ -694,7 +757,7 @@ def main():
     elif args.command == 'unusedfiles':
         show_unused_files(client, args.no_progress, args.path_prefix, args.full, args.delete, args.yes_do_as_i_say)
     elif args.command == 'unlinkedfiles':
-        handle_unlinked_files(client, args.exclude_trackers, args.exclude_messages, args.exclude_hashes, args.exclude_categories, args.exclude_tags, args.include_trackers, args.include_messages, args.include_hashes, args.include_categories, args.include_tags, args.no_progress, args.delete, args.yes_do_as_i_say, args.path_prefix)
+        handle_unlinked_files(client, args.exclude_trackers, args.exclude_messages, args.exclude_hashes, args.exclude_categories, args.exclude_tags, args.include_trackers, args.include_messages, args.include_hashes, args.include_categories, args.include_tags, args.min_unlinked_size_abs, args.min_unlinked_size_rel, args.min_torrent_age, args.no_progress, args.delete, args.yes_do_as_i_say, args.path_prefix)
     
 
 if __name__ == '__main__':
