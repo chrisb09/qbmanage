@@ -237,7 +237,6 @@ def list_tracker_messages(client: Client, no_progress: bool = False, tracker_reg
             
         print("")
         
-    print(df['Message'].value_counts())
         
 def show_unused_files(client: Client, no_progress: bool = False, path_prefix: str = '', full: bool = False, delete: bool = False, yes_do_as_i_say: bool = False):
 
@@ -543,25 +542,25 @@ def handle_unlinked_files(client: Client, exclude_trackers: list[str] = [], excl
         
         # use matching to exlude and include torrents
         if exclude_tracker_matches and any(exclude_tracker_match.search(tracker_obj.url) for exclude_tracker_match in exclude_tracker_matches):
-            break
+            continue
         if exclude_message_matches and any(exclude_message_match.search(msg) for exclude_message_match in exclude_message_matches):
-            break
+            continue
         if exclude_hash_matches and any(exclude_hash_match.search(torrent.hash) for exclude_hash_match in exclude_hash_matches):
-            break
+            continue
         if exclude_category_matches and any(exclude_category_match.search(torrent.category) for exclude_category_match in exclude_category_matches):
-            break
+            continue
         if exclude_tag_matches and any(exclude_tag_match.search(torrent.tags) for exclude_tag_match in exclude_tag_matches):
-            break
+            continue
         if include_tracker_matches and not any(include_tracker_match.search(tracker_obj.url) for include_tracker_match in include_tracker_matches):
-            break
+            continue
         if include_message_matches and not any(include_message_match.search(msg) for include_message_match in include_message_matches):
-            break
+            continue
         if include_hash_matches and not any(include_hash_match.search(torrent.hash) for include_hash_match in include_hash_matches):
-            break
+            continue
         if include_category_matches and not any(include_category_match.search(torrent.category) for include_category_match in include_category_matches):
-            break
+            continue
         if include_tag_matches and not any(include_tag_match.search(torrent.tags) for include_tag_match in include_tag_matches):
-            break
+            continue
         if len(unlinked_files_of_this_torrent) != 0:
             torrents_to_consider[torrent] = unlinked_files_of_this_torrent
             
@@ -584,7 +583,7 @@ def handle_unlinked_files(client: Client, exclude_trackers: list[str] = [], excl
 
     for torrent, unlinked_files in torrents_to_consider.items():
         if current == 0:
-            print(f"  {torrent.hash}: {",".join(unlinked_files)}")
+            print(f"  {torrent.hash}: {','.join(unlinked_files)}")
         current += 1
         if not no_progress:
             print("Extracting data from torrents ["+"#"*int(current*20/total)+" "*int((total-current)*20/total)+"] "+f"{(100*current//total)}% {current}/{total}", end='\r')
