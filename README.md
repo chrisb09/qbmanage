@@ -4,6 +4,21 @@ A command-line tool for auditing and cleaning up a qBittorrent instance. The cor
 
 Deletion is always opt-in via `--delete` (with an interactive confirmation prompt) or `--delete --yes-do-as-i-say` for unattended runs.
 
+## Assumption
+
+This tool is build around the assumption that you have at least two separate directories in your setup that share files via hardlinks:
+1. The qBittorrent "save path" where torrents are downloaded and tracked (e.g. `/data/qbittorrent/`).
+2. A separate media/data directory where the actual files are hardlinked for use (e.g. `/data/content/`).
+
+From this we infer:
+- If a file in the `save path` is not in use by any active torrent, it's a leftover that can be safely removed. [`unusedfiles` command]
+- If a torrent is still tracked but its files are missing from the `save path`, then it's effectively dead and can also be removed. [`unlinkedfiles` command]
+- If a torrent has files in the `save path` but they are not hardlinked to somewhere else, then we assume the torrent and its data are both unused and can be removed. [`unlinkedfiles` command]
+
+If your setup doesn't match this assumption (e.g. you don't use hardlinks, or you have more than two directories involved), the tool may still be useful but you'll need to adjust your filters accordingly and be extra careful when deleting.
+
+If you are using a tool like Sonarr/Radarr/Lidarr that automatically imports but you have used copy in the past or you have issues with hardlinks, you can use my other script [find-duplicates](https://github.com/chrisb09/find-duplicates) to replace duplicate files with hardlinks before running `qbmanage` to clean up unlinked torrents.
+
 ## Features
 
 | Command | Description |
@@ -68,10 +83,10 @@ Groups all torrents by their tracker-reported message (e.g. "torrent not found",
 
 ```bash
 # Inspect first
-python qbmanage.py listmessages --message ".*unregistered.*" --tracker ".*blutopia.*"
+python qbmanage.py listmessages --message ".*unregistered.*" --tracker ".*debian.*"
 
 # Remove when happy with selection
-python qbmanage.py listmessages --message ".*unregistered.*" --tracker ".*blutopia.*" --delete
+python qbmanage.py listmessages --message ".*unregistered.*" --tracker ".*debian.*" --delete
 ```
 
 Options: `--tracker`, `--message`, `--hash`, `--torrent` (all regex), `--full`, `--no-progress`, `--delete`, `--yes-do-as-i-say`
